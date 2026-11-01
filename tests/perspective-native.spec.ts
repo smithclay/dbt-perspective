@@ -112,3 +112,30 @@ test("reloading disposes all Perspective viewers and recreates one dashboard", a
   }
   expect(errors).toEqual([]);
 });
+
+test('waterfall fits phone widths with readable labels and non-overlapping ticks', async ({ page }) => {
+  await page.setViewportSize({width:390,height:844});
+  await page.goto('./observability.html');
+  await expect(page.locator('#loader-status')).toContainText('Ready',{timeout:60000});
+  const viewer = page.locator('perspective-viewer[data-role="waterfall"]');
+  await viewer.scrollIntoViewIfNeeded();
+  for (const width of [390,320,768]) {
+    await page.setViewportSize({width,height:844});
+    await expect.poll(async () => page.locator('.trace-scroll').evaluate(el => {
+      const canvas = el.querySelector('canvas')!;
+      return Math.abs(canvas.getBoundingClientRect().width - el.clientWidth);
+    })).toBeLessThan(2);
+    const sizes = await page.locator('.trace-scroll').evaluate(el => ({client:el.clientWidth,scroll:el.scrollWidth,label:el.querySelector('.trace-row')!.getBoundingClientRect().width}));
+    expect(sizes.scroll).toBeLessThanOrEqual(sizes.client+1);
+    expect(sizes.label).toBeLessThan(sizes.client*.5);
+    const ticks = await page.locator('.trace-axis > span').evaluateAll(els => els.slice(1).map(el=>{const r=el.getBoundingClientRect();return {left:r.left,right:r.right};}));
+    for(let i=1;i<ticks.length;i++) expect(ticks[i].left).toBeGreaterThan(ticks[i-1].right);
+  }
+  await page.setViewportSize({width:390,height:844});
+  await page.locator('.trace-label').first().click();
+  await expect(page.locator('.detail-summary')).toContainText('gateway');
+  await page.getByRole('button',{name:'Zoom in',exact:true}).click();
+  const state = await viewer.evaluate(async (el:any)=>(await el.save()).plugin_config);
+  expect(state.window[1]-state.window[0]).toBeLessThan(600);
+  await viewer.screenshot({path:'/tmp/mobile-waterfall.png'});
+});

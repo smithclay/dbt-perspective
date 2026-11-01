@@ -3,7 +3,7 @@ import { formatValue, relativeMs } from "../../observability/contracts";
 import type { Span } from "../../observability/contracts";
 
 export function createTraceSurface(container: HTMLElement, onSelect: (span: Span) => void, onStateChange: () => void) {
-  const section = document.createElement("section"); section.className = "obs-card";
+  const section = document.createElement("section"); section.className = "obs-card trace-card";
   section.innerHTML = '<div class="obs-heading"><h2>Trace waterfall</h2><span class="trace-summary"></span></div><div class="trace-tools"></div><div class="trace-axis"></div><div class="trace-scroll" tabindex="0" role="region" aria-label="Trace spans"><div class="trace-space"><canvas aria-hidden="true"></canvas><div class="trace-labels"></div></div></div><p class="trace-warnings" role="status"></p>';
   container.append(section);
   const tools = section.querySelector<HTMLElement>(".trace-tools")!;
@@ -13,7 +13,8 @@ export function createTraceSurface(container: HTMLElement, onSelect: (span: Span
   const canvas = section.querySelector<HTMLCanvasElement>("canvas")!;
   const context = canvas.getContext("2d")!;
   const axis = section.querySelector<HTMLElement>(".trace-axis")!;
-  const rowHeight = 29, labelWidth = 280, viewportHeight = 350;
+  const rowHeight = 29;
+  let viewportHeight = 350;
   let spans: Span[] = [], collapsed = new Set<string>(), tree = buildTrace([]);
   let selected: string | undefined, start = 0, end = 1, frame = 0;
   const abort = new AbortController();
@@ -44,7 +45,13 @@ export function createTraceSurface(container: HTMLElement, onSelect: (span: Span
     const background = theme.getPropertyValue("--plugin--background").trim() || "#fff";
     const grid = theme.getPropertyValue("--inactive--border-color").trim() || "#e3e8f1";
     const selectedBackground = theme.getPropertyValue("--active--background").trim() || "#e8efff";
-    const width = Math.max(320, scroller.clientWidth), plotWidth = Math.max(1, width - labelWidth - 16);
+    const width = Math.max(1, scroller.clientWidth);
+    const labelWidth = Math.min(280, Math.max(80, width * .44));
+    const plotWidth = Math.max(1, width - labelWidth - 8);
+    viewportHeight = Math.max(1, scroller.clientHeight);
+    section.style.setProperty("--trace-viewport-height", viewportHeight + "px");
+    labels.style.width = labelWidth + "px";
+    space.style.height = Math.max(viewportHeight, tree.rows.length * rowHeight) + "px";
     const dpr = devicePixelRatio || 1;
     canvas.width = width * dpr; canvas.height = viewportHeight * dpr;
     canvas.style.width = width + "px"; canvas.style.height = viewportHeight + "px";
@@ -54,11 +61,12 @@ export function createTraceSurface(container: HTMLElement, onSelect: (span: Span
     labels.replaceChildren(); axis.replaceChildren();
     const axisLabel = document.createElement("span"); axisLabel.textContent = "Service / operation"; axisLabel.style.width = labelWidth + "px"; axis.append(axisLabel);
     context.font = "12px system-ui";
-    for (let tick = 0; tick <= 5; tick++) {
-      const x = labelWidth + plotWidth * tick / 5;
+    const ticks = Math.max(1, Math.min(5, Math.floor(plotWidth / 80)));
+    for (let tick = 0; tick <= ticks; tick++) {
+      const x = labelWidth + plotWidth * tick / ticks;
       context.strokeStyle = grid; context.beginPath(); context.moveTo(x, 0); context.lineTo(x, viewportHeight); context.stroke();
-      const label = document.createElement("span"); label.textContent = formatValue(start + (end - start) * tick / 5, "ms");
-      label.style.position = "absolute"; label.style.top = "0"; label.style.left = x + "px"; label.style.whiteSpace = "nowrap"; label.style.transform = tick === 5 ? "translateX(-100%)" : ""; axis.append(label);
+      const label = document.createElement("span"); label.textContent = formatValue(start + (end - start) * tick / ticks, "ms");
+      label.style.position = "absolute"; label.style.top = "0"; label.style.left = x + "px"; label.style.whiteSpace = "nowrap"; label.style.transform = tick === ticks ? "translateX(-100%)" : tick ? "translateX(-50%)" : ""; axis.append(label);
     }
     for (let index = first; index < last; index++) {
       const row = tree.rows[index], span = row.span;
@@ -80,7 +88,7 @@ export function createTraceSurface(container: HTMLElement, onSelect: (span: Span
       }
       context.restore();
       const label = document.createElement("div"); label.className = "trace-row"; label.style.top = index * rowHeight + "px";
-      label.style.width = labelWidth + "px"; label.style.paddingLeft = Math.min(140, row.depth * 14) + "px";
+      label.style.width = labelWidth + "px"; label.style.paddingLeft = Math.min(labelWidth * .3, row.depth * 14) + "px";
       if (row.children) {
         const toggle = document.createElement("button"); toggle.className = "trace-toggle";
         toggle.textContent = collapsed.has(span.spanId) ? "▸" : "▾";
