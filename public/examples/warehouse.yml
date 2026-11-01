@@ -1,0 +1,17 @@
+# yaml-language-server: $schema=https://docs.dbtcharts.com/schema/board.json
+title: Warehouse revenue
+source: analytics
+queries:
+  revenue: |
+    SELECT month, SUM(revenue) AS revenue
+    FROM {{ ref('orders') }}
+    GROUP BY month
+charts:
+  revenue:
+    title: Revenue by month
+    type: bar
+    query: revenue
+    x: month
+    y: revenue
+rows:
+  - revenue

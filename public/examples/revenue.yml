@@ -1,0 +1,36 @@
+# yaml-language-server: $schema=https://docs.dbtcharts.com/schema/board.json
+title: Revenue overview
+queries:
+  revenue:
+    columns: [month, region, revenue]
+    values:
+      - ["2026-01", North, 1200]
+      - ["2026-01", South, 900]
+      - ["2026-02", North, 1600]
+      - ["2026-02", South, 1100]
+      - ["2026-03", North, 1800]
+      - ["2026-03", South, 1400]
+charts:
+  trend:
+    title: Monthly revenue
+    type: line
+    query: revenue
+    x: month
+    y: revenue
+    color: region
+  bars:
+    title: Revenue by month
+    type: bar
+    query: revenue
+    x: month
+    y: revenue
+    color: region
+  detail:
+    title: Order revenue details
+    type: table
+    query: revenue
+rows:
+  - cols:
+      - trend
+      - bars
+  - detail
