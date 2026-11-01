@@ -65,3 +65,12 @@ test("scatter and heatmap map channels to Perspective", () => {
   const map = chartConfig({ type: "heatmap", x: "x", y: "y", color: "c" }, data);
   assert.deepEqual([map.group_by, map.split_by, map.columns], [["x"], ["y"], ["c"]]);
 });
+test("standard dbt y_start range bars compile without custom YAML fields", async () => {
+  const board = parseBoard(readFileSync(new URL("../public/examples/ranges.yml", import.meta.url), "utf8"));
+  const plan = await compileBoard(board);
+  const chart = plan.children[0];
+  assert.equal(chart.kind, "chart");
+  if (chart.kind !== "chart") throw new Error();
+  assert.equal(chart.ranges!.items.length, 3);
+  assert.deepEqual([chart.ranges!.items[2].start, chart.ranges!.items[2].end], [60, 530]);
+});

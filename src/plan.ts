@@ -1,3 +1,5 @@
+import { rangeData } from "./ranges";
+import type { RangeData } from "./ranges";
 import type { ViewerConfigUpdate } from "@finos/perspective-viewer";
 import { assertKeys, BoardError, object, resolveQuery } from "./board";
 import type { DataResults, ObjectValue, QueryResolver, Row } from "./board";
@@ -10,6 +12,7 @@ export interface ChartPlan {
   height?: number;
   data: Row[];
   config: ViewerConfigUpdate;
+  ranges?: RangeData;
 }
 export interface LayoutPlan {
   kind: "rows" | "cols";
@@ -25,7 +28,13 @@ function fields(value: unknown): string[] {
 
 export function chartConfig(chart: ObjectValue, data: Row[]): ViewerConfigUpdate {
   assertKeys(chart, [...metadata, "type", "title", "subtitle", "query", "x", "y", "color", "size",
-    "rows", "columns", "values", "height", "width", "sort", "visible"], "chart");
+    "rows", "columns", "values", "height", "width", "sort", "visible", "y_start", "style"], "chart");
+  if (chart.style !== undefined && chart.style !== null) {
+    if (!object(chart.style)) throw new BoardError("DATA", "Expected style object.");
+    assertKeys(chart.style, ["orientation"], "chart.style");
+    if (chart.type !== "bar") throw new BoardError("UNSUPPORTED", "Orientation style is supported for bars only.");
+  }
+  if (rangeData(chart, data)) return { plugin: "Datagrid", columns: Object.keys(data[0]), settings: false };
   const type = chart.type as string;
   const measures = fields(chart.y);
   const x = typeof chart.x === "string" ? chart.x : undefined;
@@ -43,6 +52,7 @@ export function chartConfig(chart: ObjectValue, data: Row[]): ViewerConfigUpdate
     if (!x || !measures.length) throw new BoardError("DATA", type + " needs x and y columns.");
     if (chart.size || chart.rows || chart.columns || chart.values) throw new BoardError("UNSUPPORTED", "Unexpected encoding for " + type);
     config.plugin = { bar: "Y Bar", line: "Y Line", area: "Y Area" }[type];
+    if (type === "bar" && object(chart.style) && chart.style.orientation === "horizontal") config.plugin = "X Bar";
     config.group_by = [x];
     config.split_by = color ? [color] : [];
     config.columns = measures;
@@ -139,7 +149,7 @@ export async function compileBoard(
         subtitle: typeof chart.subtitle === "string" ? chart.subtitle : undefined,
         height: typeof chart.height === "number" ? chart.height : undefined,
         width: typeof chart.width === "number" ? chart.width : undefined,
-        data, config: chartConfig(chart, data)
+        data, config: chartConfig(chart, data), ranges: rangeData(chart, data)
       });
     }
     return { kind, title: current.title as string | undefined, children };

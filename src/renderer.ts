@@ -1,3 +1,4 @@
+import { mountRangeBars } from "./ranges";
 import perspective from "@finos/perspective";
 import perspectiveViewer from "@finos/perspective-viewer";
 import "@finos/perspective-viewer-d3fc";
@@ -21,6 +22,7 @@ export async function mountBoard(container: HTMLElement, plan: Plan) {
   await initialize();
   const worker = await perspective.worker();
   const resources: { viewer: HTMLPerspectiveViewerElement; table: Awaited<ReturnType<typeof worker.table>> }[] = [];
+  const rangeViews: ReturnType<typeof mountRangeBars>[] = [];
   const root = document.createElement("div");
   container.append(root);
   async function dispose() {
@@ -29,6 +31,7 @@ export async function mountBoard(container: HTMLElement, plan: Plan) {
       try { await viewer.delete(); } catch (error) { failures.push(error); }
       try { await table.delete(); } catch (error) { failures.push(error); }
     }
+    for (const view of rangeViews) view.dispose();
     await worker.terminate();
     root.remove();
     if (failures.length) throw new AggregateError(failures, "Perspective cleanup failed.");
@@ -43,6 +46,7 @@ export async function mountBoard(container: HTMLElement, plan: Plan) {
     if (item.kind === "chart") {
       if (item.subtitle) { const subtitle = document.createElement("p"); subtitle.textContent = item.subtitle; element.append(subtitle); }
       if (item.width) { element.style.width = item.width + "px"; element.style.maxWidth = "100%"; }
+      if (item.ranges) { rangeViews.push(mountRangeBars(element, item.ranges, item.height)); return; }
       const viewer = document.createElement("perspective-viewer");
       viewer.setAttribute("theme", "Pro Light");
       viewer.style.height = (item.height ?? 360) + "px";
@@ -63,7 +67,7 @@ export async function mountBoard(container: HTMLElement, plan: Plan) {
   catch (error) { await dispose(); throw error; }
   let disposed = false;
   return {
-    async resize() { for (const { viewer } of resources) await viewer.resize(true); },
+    async resize() { for (const view of rangeViews) view.resize(); for (const { viewer } of resources) await viewer.resize(true); },
     async dispose() { if (!disposed) { disposed = true; await dispose(); } }
   };
 }

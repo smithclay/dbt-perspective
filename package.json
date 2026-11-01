@@ -7,13 +7,15 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "tsc --noEmit && vite build",
-    "test": "node --import tsx src/board.test.ts",
+    "test": "node --import tsx src/board.test.ts && node --import tsx src/observability/observability.test.ts",
     "preview": "vite preview",
     "test:e2e": "playwright test",
     "schema:generate": "node scripts/generate-schema.mjs",
-    "check": "npm test && npm run build && npm run test:e2e"
+    "check": "npm test && npm run build && npm run test:e2e",
+    "assets:verify": "node scripts/verify-duckdb-assets.mjs"
   },
   "dependencies": {
+    "@duckdb/duckdb-wasm": "1.32.0",
     "@finos/perspective": "3.8.0",
     "@finos/perspective-viewer": "3.8.0",
     "@finos/perspective-viewer-d3fc": "3.8.0",

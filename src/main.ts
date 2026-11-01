@@ -3,6 +3,9 @@ import type { DataResults } from "./board";
 import { compileBoard } from "./plan";
 import { mountBoard } from "./renderer";
 import "./style.css";
+import type { DuckDBSource } from "./duckdb";
+let duckdb: DuckDBSource | undefined;
+async function database() { return duckdb ??= await (await import("./duckdb")).DuckDBSource.create(); }
 
 const status = document.querySelector<HTMLElement>("#status")!;
 const editor = document.querySelector<HTMLTextAreaElement>("#yaml")!;
@@ -26,7 +29,7 @@ async function run(action: () => Promise<void>) {
 }
 async function render() {
   const board = parseBoard(editor.value);
-  const plan = await compileBoard(board, results);
+  const plan = await compileBoard(board, results, duckdb?.resolver());
   // Stage the new board while the previous board stays visible on errors.
   const staging = document.createElement("div");
   staging.className = "staging";
@@ -67,3 +70,15 @@ async function demo() {
 }
 document.querySelector<HTMLButtonElement>("#demo")!.onclick = () => void run(demo);
 await run(demo);
+
+document.querySelector<HTMLButtonElement>("#enable-duckdb")!.onclick = () => void run(async () => {
+  await database(); status.textContent = "DuckDB SQL enabled. Load a file and query table uploaded.";
+});
+document.querySelector<HTMLInputElement>("#duckdb-file")!.onchange = event => {
+  const file = (event.target as HTMLInputElement).files?.[0];
+  if (file) void run(async () => {
+    await (await database()).loadFile(file);
+    status.textContent = "DuckDB loaded " + file.name + ". Query table uploaded, or uploaded.<table> for database files.";
+  });
+};
+window.addEventListener("pagehide", () => { void duckdb?.dispose(); void mounted?.dispose(); }, { once: true });

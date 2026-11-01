@@ -1,0 +1,19 @@
+# yaml-language-server: $schema=https://docs.dbtcharts.com/schema/board.json
+title: Request intervals
+queries:
+  intervals:
+    columns: [operation, start_ms, end_ms, service]
+    values:
+      - [POST /checkout, 0, 600, gateway]
+      - [checkout.submit, 20, 580, checkout]
+      - [SELECT inventory, 60, 530, postgres]
+charts:
+  intervals:
+    type: bar
+    query: intervals
+    x: operation
+    y_start: start_ms
+    y: end_ms
+    color: service
+    style:
+      orientation: horizontal

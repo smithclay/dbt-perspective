@@ -1,0 +1,9 @@
+# yaml-language-server: $schema=https://docs.dbtcharts.com/schema/board.json
+title: Local DuckDB data
+queries:
+  results: SELECT * FROM uploaded LIMIT 10000
+charts:
+  data:
+    title: Query results
+    type: table
+    query: results
