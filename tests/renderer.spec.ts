@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 test("demo loads real Perspective viewers and preserves the board on invalid input", async ({ page }) => {
   const errors: string[] = [];
   page.on("pageerror", error => errors.push(error.message));
-  await page.goto("/");
+  await page.goto("./");
   await expect(page.getByRole("status")).toContainText("Board rendered", { timeout: 60000 });
   await expect(page.locator("perspective-viewer")).toHaveCount(3);
   const configs = await page.locator("perspective-viewer").evaluateAll(async viewers =>
@@ -21,7 +21,7 @@ test("demo loads real Perspective viewers and preserves the board on invalid inp
 });
 
 test("area, scatter, heatmap, SQL results, and unsupported features", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("./");
   await expect(page.getByRole("status")).toContainText("Board rendered", { timeout: 60000 });
   await page.getByText("Edit board YAML").click();
   const editor = page.getByRole("textbox", { name: "Board YAML" });

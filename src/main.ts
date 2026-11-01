@@ -62,7 +62,7 @@ document.querySelector<HTMLInputElement>("#results-file")!.onchange = event => {
 };
 document.querySelector<HTMLButtonElement>("#render")!.onclick = () => void run(render);
 async function demo() {
-  const response = await fetch("/examples/revenue.yml");
+  const response = await fetch(import.meta.env.BASE_URL + "examples/revenue.yml");
   if (!response.ok) throw new Error("Could not load demo YAML.");
   editor.value = await response.text();
   results = {};

@@ -1,5 +1,5 @@
 <!doctype html>
 <html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Observability · dbt × Perspective</title></head>
-<body><main><header><div><a href="/">← YAML boards</a><h1>Observability explorer</h1><p>DuckDB-Wasm · metrics → traces → logs</p></div><button id="reload-demo">Reload demo</button></header>
+<body><main><header><div><a href="%BASE_URL%">← YAML boards</a><h1>Observability explorer</h1><p>DuckDB-Wasm · metrics → traces → logs</p></div><button id="reload-demo">Reload demo</button></header>
 <section class="controls"><label>Import table<select id="import-table"><option>metrics</option><option>spans</option><option>logs</option></select><input id="data-file" type="file" accept=".json,.jsonl,.ndjson,.csv,.parquet,.duckdb,.db"></label><label>OTLP trace export<input id="otlp-file" type="file" accept=".json"></label><label>Trace ID<input id="trace-id" placeholder="trace-slow-001"></label><button id="open-trace">Open trace</button><button id="append-data">Append live sample</button></section>
 <p id="loader-status" role="status"></p><div id="observability-root"></div></main><script type="module" src="/src/observability-main.ts"></script></body></html>

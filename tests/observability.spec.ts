@@ -3,7 +3,7 @@ import { test, expect } from "@playwright/test";
 test("DuckDB metrics → trace waterfall → correlated span logs", async ({ page }) => {
   const errors: string[] = [];
   page.on("pageerror", error => errors.push(error.message));
-  await page.goto("/observability.html");
+  await page.goto("./observability.html");
   await expect(page.locator("#loader-status")).toContainText("Ready", { timeout: 90000 });
   await expect(page.locator(".obs-status")).toContainText("metric buckets", { timeout: 30000 });
   await expect(page.getByRole("button", { name: /Open trace trace-sl/ })).toBeVisible();
@@ -34,7 +34,7 @@ test("DuckDB metrics → trace waterfall → correlated span logs", async ({ pag
 });
 
 test("YAML board queries uploaded data through actual DuckDB-Wasm", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("./");
   await expect(page.getByRole("status")).toContainText("Board rendered", { timeout: 60000 });
   await page.locator("#duckdb-file").setInputFiles({
     name: "local.csv", mimeType: "text/csv", buffer: Buffer.from("region,revenue\nNorth,1200\nSouth,900\n")
@@ -49,7 +49,7 @@ test("YAML board queries uploaded data through actual DuckDB-Wasm", async ({ pag
 
 test("10k-span OTLP import keeps DOM bounded and scrolls to late spans", async ({ page }) => {
   test.setTimeout(90000);
-  await page.goto("/observability.html");
+  await page.goto("./observability.html");
   await expect(page.locator("#loader-status")).toContainText("Ready", { timeout: 60000 });
   const spans = Array.from({ length: 10_000 }, (_, index) => ({
     traceId: "large-trace", spanId: "span-" + index, parentSpanId: index ? "span-0" : undefined,
@@ -70,7 +70,7 @@ test("10k-span OTLP import keeps DOM bounded and scrolls to late spans", async (
 });
 
 test("standard dbt range bars render intervals", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("./");
   await expect(page.getByRole("status")).toContainText("Board rendered", { timeout: 60000 });
   await page.locator("#board-file").setInputFiles("public/examples/ranges.yml");
   await expect(page.getByRole("status")).toContainText("Board rendered");
@@ -84,10 +84,10 @@ test("exported DuckDB API preserves timestamps, imports Parquet/databases, and b
   const manifest = JSON.parse(readFileSync("dist/.vite/manifest.json", "utf8"));
   const library = manifest["src/index.ts"].file;
   const databaseBase64 = readFileSync("tests/fixtures/read-only.duckdb").toString("base64");
-  await page.goto("/");
+  await page.goto("./");
   await expect(page.getByRole("status")).toContainText("Board rendered", { timeout: 30000 });
   const results = await page.evaluate(async ({ modulePath, databaseBase64 }) => {
-    const { DuckDBSource } = await import("/" + modulePath);
+    const { DuckDBSource } = await import(new URL(modulePath, document.baseURI).href);
     const source = await DuckDBSource.create();
     let stage = "timestamp";
     try {

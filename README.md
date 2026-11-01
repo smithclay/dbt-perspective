@@ -125,3 +125,29 @@ The initial backend pins Perspective 3.8.0's FINOS packages for API compatibilit
 these packages are deprecated upstream in favor of the `@perspective-dev`
 packages. The lockfile pins the tested dependency tree. This starter is private
 and is not configured for npm publication.
+
+## GitHub Pages demo
+
+The [Pages workflow](.github/workflows/pages.yml) tests and publishes both demos
+from `main`. In **Settings → Pages → Build and deployment**, select
+**GitHub Actions** once, then run the workflow (or push to `main`).
+
+Expected URLs after successful deployment:
+
+- Boards: https://smithclay.github.io/dbt-perspective/
+- Observability: https://smithclay.github.io/dbt-perspective/observability.html
+
+The repository can remain private if its GitHub plan supports Pages; the demo
+site is public. Only the built demo and synthetic fixtures in `public/` are
+published. Uploaded user files stay in the visitor's browser. No secrets or
+server-side data sources are configured. DuckDB assets/extensions are served
+from Pages too.
+
+To reproduce the subpath build locally:
+
+```sh
+VITE_BASE_PATH=/dbt-perspective/ npm run build
+VITE_BASE_PATH=/dbt-perspective/ npm run preview
+```
+
+Visit the `/dbt-perspective/` path printed by your local server.
