@@ -1,5 +1,7 @@
 import type { DuckDBSource } from "../duckdb";
 
+export const DEMO_TRACE_ID = "trace-slow-001";
+
 export async function seedObservabilityDemo(source: DuckDBSource) {
   // Nanosecond epoch values remain integers/decimal strings all the way into the worker.
   await source.execute(`

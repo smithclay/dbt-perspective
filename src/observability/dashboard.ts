@@ -1,5 +1,5 @@
 import { formatValue, isoTime, relativeMs } from "./contracts";
-import type { LogRecord, Span, TimeRange } from "./contracts";
+import type { DashboardState, LogRecord, Span, TimeRange } from "./contracts";
 import { ObservabilityData } from "./data";
 import { DashboardStore, QueryCoordinator, startRefresh } from "./state";
 import { mountMetrics } from "./metrics";
@@ -7,7 +7,7 @@ import { mountWaterfall } from "./waterfall";
 import { mountLogs } from "./logs";
 
 export async function mountObservability(container: HTMLElement, data: ObservabilityData, options: {
-  unit?: import("./contracts").Unit; title?: string; histogramWidth?: number; threshold?: number;
+  unit?: import("./contracts").Unit; title?: string; histogramWidth?: number; threshold?: number; initialTraceId?: string;
 } = {}) {
   const root = document.createElement("div"); root.className = "observability";
   root.innerHTML = '<div class="obs-controls"><label>From (UTC)<input type="datetime-local" step="0.001" class="range-start"></label><label>To (UTC)<input type="datetime-local" step="0.001" class="range-end"></label><button class="apply-range">Apply time range</button><button class="reset-range">Reset time range</button><label>Service<select class="service-filter"><option value="">All services</option></select></label><label>Bucket (s)<input class="bucket-seconds" type="number" min="0.001" step="0.001" value="1"></label><label>Threshold (ms)<input class="threshold" type="number" min="0" value="250"></label><label class="check"><input class="log-scale" type="checkbox">Log scale</label><label class="check"><input class="live" type="checkbox">Refresh every 5s</label><button class="clear-selection">Clear selection</button></div><p class="obs-status" role="status"></p><div class="metrics-slot"></div><div class="trace-context"></div><div class="waterfall-slot"></div><section class="obs-card details-card"><h2>Span / log details</h2><p class="detail-summary">Select a trace exemplar, then a span.</p><button class="span-logs" disabled>Show span logs</button><pre class="detail-json"></pre></section><div class="logs-slot"></div>';
@@ -18,6 +18,7 @@ export async function mountObservability(container: HTMLElement, data: Observabi
   try { fullRange = await data.bounds(sourceController.signal); }
   catch (error) { root.remove(); throw error; }
   const store = new DashboardStore(fullRange), coordinator = new QueryCoordinator(), traceCoordinator = new QueryCoordinator();
+  if (options.initialTraceId) store.select({ traceId: options.initialTraceId });
   let selectedSpan: Span | undefined, stopRefresh: (() => void) | undefined, disposed = false, currentTrace: string | undefined;
   const startInput = root.querySelector<HTMLInputElement>(".range-start")!, endInput = root.querySelector<HTMLInputElement>(".range-end")!;
   const bucketInput = root.querySelector<HTMLInputElement>(".bucket-seconds")!;
@@ -27,6 +28,7 @@ export async function mountObservability(container: HTMLElement, data: Observabi
   thresholdLabel.firstChild!.textContent = "Threshold (" + (options.unit ?? "ms") + ")";
   const spanLogs = root.querySelector<HTMLButtonElement>(".span-logs")!;
   const context = root.querySelector<HTMLElement>(".trace-context")!;
+  context.setAttribute("role", "status");
   const service = root.querySelector<HTMLSelectElement>(".service-filter")!;
   const metrics = mountMetrics(root.querySelector<HTMLElement>(".metrics-slot")!, {
     onRange: range => store.setRange(range), onTrace: traceId => store.select({ traceId, service: store.state.selection.service })
@@ -50,9 +52,7 @@ export async function mountObservability(container: HTMLElement, data: Observabi
     root.querySelector(".detail-json")!.textContent = JSON.stringify(value, (_, item) => typeof item === "bigint" ? item.toString() : item, 2);
   }
   function report(error: unknown) { if (!disposed) { status.textContent = error instanceof Error ? error.message : String(error); status.className = "obs-status error"; } }
-  async function refresh() {
-    const state = store.state;
-    traceCoordinator.cancel();
+  async function refreshMetrics(state: DashboardState) {
     status.textContent = "Querying DuckDB…"; status.className = "obs-status";
     startInput.value = isoTime(state.range.start).slice(0, -1); endInput.value = isoTime(state.range.end).slice(0, -1);
     const bucketSeconds = Number(bucketInput.value);
@@ -69,20 +69,43 @@ export async function mountObservability(container: HTMLElement, data: Observabi
       logs.setLogs(result.logData);
       status.textContent = result.metricData.quantiles.length + " metric buckets · " + result.logData.length + " logs · " + (state.selection.traceId ? "trace " + state.selection.traceId : "all traces");
     });
-    if (state !== store.state || disposed) return;
+  }
+  async function refreshTrace(state: DashboardState) {
     if (state.selection.traceId) {
+      context.className = "trace-context";
+      context.textContent = "Loading trace " + state.selection.traceId + "…";
+      if (currentTrace !== state.selection.traceId) {
+        selectedSpan = undefined; spanLogs.disabled = true; waterfall.setSpans([]);
+      }
       await traceCoordinator.run(signal => data.trace(state.selection.traceId!, signal), spans => {
         const preserve = currentTrace === state.selection.traceId;
         currentTrace = state.selection.traceId;
         selectedSpan = preserve ? spans.find(span => span.spanId === selectedSpan?.spanId) : undefined;
         spanLogs.disabled = !selectedSpan;
         waterfall.setSpans(spans, state.selection.spanId ?? selectedSpan?.spanId, preserve);
-        context.textContent = spans.length ? "Trace " + currentTrace + " · select a span for attributes and events" : "No spans found for trace " + currentTrace;
+        context.textContent = spans.length ? "Trace " + currentTrace + " · select a span for attributes and events" : "No spans found for trace " + currentTrace + ". Choose another exemplar or check the trace ID.";
       });
-    } else if (!state.selection.traceId && currentTrace) {
-      traceCoordinator.cancel(); currentTrace = undefined; selectedSpan = undefined; spanLogs.disabled = true; waterfall.setSpans([]); context.textContent = "";
-      root.querySelector(".detail-summary")!.textContent = "Select a trace exemplar, then a span."; root.querySelector(".detail-json")!.textContent = "";
-    } else waterfall.select(state.selection.spanId);
+    } else {
+      traceCoordinator.cancel(); currentTrace = undefined; selectedSpan = undefined; spanLogs.disabled = true; waterfall.setSpans([]);
+      context.className = "trace-context";
+      context.textContent = "Choose a trace exemplar below the latency chart, or enter a trace ID above.";
+      root.querySelector(".detail-summary")!.textContent = "Select a trace exemplar, then a span.";
+      root.querySelector(".detail-json")!.textContent = "";
+    }
+  }
+  async function refresh() {
+    const state = store.state;
+    traceCoordinator.cancel();
+    // A metrics/log query failure must never prevent an independent trace query.
+    await Promise.all([
+      refreshTrace(state).catch(error => {
+        if (!disposed && state === store.state) {
+          context.className = "trace-context error";
+          context.textContent = "Could not load trace " + state.selection.traceId + ": " + (error instanceof Error ? error.message : String(error));
+        }
+      }),
+      refreshMetrics(state).catch(error => { if (state === store.state) report(error); })
+    ]);
   }
   const unsubscribe = store.subscribe(() => { void refresh().catch(report); });
   root.querySelector<HTMLButtonElement>(".apply-range")!.onclick = () => {

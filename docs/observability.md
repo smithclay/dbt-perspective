@@ -2,7 +2,10 @@
 
 Run `npm ci && npm run dev`, then open **Observability explorer** at
 `/observability.html`. The demo uses actual SQL in DuckDB-Wasm, not mocked query
-results. No server or warehouse credentials are needed.
+results. No server or warehouse credentials are needed. The demo automatically
+opens its sample trace and fills the Trace ID input. Traces load independently
+of metrics/log queries; loading, missing-ID, and query failures appear beside
+the waterfall.
 
 ## What works
 
@@ -100,7 +103,8 @@ await source.dispose();
 
 `ObservabilityData` accepts any `QuerySource` with the same parameterized-query
 interface, so an existing DuckDB-Wasm instance can be wrapped rather than
-instantiating a second engine. Its second constructor argument maps table names,
+instantiating a second engine. Pass `initialTraceId` in the dashboard options to
+open a trace on mount. Its second constructor argument maps table names,
 including qualified names such as `telemetry.spans`.
 
 `DuckDBSource.query(sql, params, {signal, maxRows})` uses prepared statements

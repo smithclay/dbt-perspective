@@ -1,7 +1,7 @@
 import { DuckDBSource, quoteLiteral } from "./duckdb";
 import { ObservabilityData } from "./observability/data";
 import { mountObservability } from "./observability/dashboard";
-import { appendDemoBatch, seedObservabilityDemo } from "./observability/demo";
+import { appendDemoBatch, DEMO_TRACE_ID, seedObservabilityDemo } from "./observability/demo";
 import { normalizeSpans } from "./observability/trace-model";
 import "./style.css";
 
@@ -10,6 +10,8 @@ const container = document.querySelector<HTMLElement>("#observability-root")!;
 let source: DuckDBSource;
 let dashboard: Awaited<ReturnType<typeof mountObservability>> | undefined;
 let pending = false;
+let unsubscribeSelection: (() => void) | undefined;
+const traceInput = document.querySelector<HTMLInputElement>("#trace-id")!;
 async function run(action: () => Promise<void>) {
   if (pending) return;
   pending = true; status.textContent = "Loading DuckDB-Wasm…"; status.className = "";
@@ -21,11 +23,15 @@ async function run(action: () => Promise<void>) {
     document.querySelectorAll<HTMLButtonElement | HTMLInputElement>(".controls button,.controls input,header button").forEach(el => el.disabled = false);
   }
 }
-async function mount(tables?: { metrics: string; spans: string; logs: string }) {
-  dashboard?.dispose(); dashboard = await mountObservability(container, new ObservabilityData(source, tables));
+async function mount(tables?: { metrics: string; spans: string; logs: string }, initialTraceId?: string) {
+  unsubscribeSelection?.();
+  dashboard?.dispose();
+  dashboard = await mountObservability(container, new ObservabilityData(source, tables), { initialTraceId });
+  traceInput.value = dashboard.store.state.selection.traceId ?? "";
+  unsubscribeSelection = dashboard.store.subscribe(state => { traceInput.value = state.selection.traceId ?? ""; });
 }
 document.querySelector<HTMLButtonElement>("#reload-demo")!.onclick = () => void run(async () => {
-  dashboard?.dispose(); await source.dispose(); source = await DuckDBSource.create(); await seedObservabilityDemo(source); await mount();
+  dashboard?.dispose(); await source.dispose(); source = await DuckDBSource.create(); await seedObservabilityDemo(source); await mount(undefined, DEMO_TRACE_ID);
 });
 document.querySelector<HTMLInputElement>("#data-file")!.onchange = event => {
   const file = (event.target as HTMLInputElement).files?.[0]; if (!file) return;
@@ -56,13 +62,22 @@ document.querySelector<HTMLInputElement>("#otlp-file")!.onchange = event => {
     dashboard!.store.select({ traceId: spans[0].traceId });
   });
 };
-document.querySelector<HTMLButtonElement>("#open-trace")!.onclick = () => {
-  const id = document.querySelector<HTMLInputElement>("#trace-id")!.value.trim(); if (id) dashboard?.store.select({ traceId: id });
-};
+function openTrace() {
+  const id = traceInput.value.trim();
+  if (!id) {
+    status.textContent = "Enter a trace ID or choose an Open trace exemplar below the latency chart.";
+    status.className = "error";
+    traceInput.focus();
+    return;
+  }
+  dashboard?.store.select({ traceId: id });
+}
+document.querySelector<HTMLButtonElement>("#open-trace")!.onclick = openTrace;
+traceInput.onkeydown = event => { if (event.key === "Enter") openTrace(); };
 document.querySelector<HTMLButtonElement>("#append-data")!.onclick = () => void run(async () => {
   await appendDemoBatch(source);
   const bounds = await new ObservabilityData(source).bounds();
   dashboard!.store.setRange(bounds);
 });
 window.addEventListener("pagehide", () => { dashboard?.dispose(); void source?.dispose(); }, { once: true });
-await run(async () => { source = await DuckDBSource.create(); await seedObservabilityDemo(source); await mount(); });
+await run(async () => { source = await DuckDBSource.create(); await seedObservabilityDemo(source); await mount(undefined, DEMO_TRACE_ID); });

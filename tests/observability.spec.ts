@@ -6,6 +6,8 @@ test("DuckDB metrics → trace waterfall → correlated span logs", async ({ pag
   await page.goto("./observability.html");
   await expect(page.locator("#loader-status")).toContainText("Ready", { timeout: 90000 });
   await expect(page.locator(".obs-status")).toContainText("metric buckets", { timeout: 30000 });
+  await expect(page.locator(".trace-summary")).toContainText("6 spans");
+  await expect(page.locator("#trace-id")).toHaveValue("trace-slow-001");
   await expect(page.getByRole("button", { name: /Open trace trace-sl/ })).toBeVisible();
   await page.getByRole("button", { name: /Open trace trace-sl/ }).click();
   await expect(page.locator(".trace-summary")).toContainText("6 spans");
@@ -131,4 +133,38 @@ test("exported DuckDB API preserves timestamps, imports Parquet/databases, and b
   expect(results.imported).toEqual([{ timestamp_ns: "1793491200000000001", value: 3.5 }]);
   expect(results.attached).toEqual(results.imported);
   expect(results.retained).toEqual([{ id: "a", value: 3 }, { id: "c", value: 4 }]);
+});
+
+test("trace loading is independent of metric/log failures and reports missing trace IDs", async ({ page }) => {
+  const { readFileSync } = await import("node:fs");
+  const manifest = JSON.parse(readFileSync("dist/.vite/manifest.json", "utf8"));
+  await page.goto("./observability.html");
+  await expect(page.locator("#loader-status")).toContainText("Ready", { timeout: 60000 });
+  await page.evaluate(async modulePath => {
+    const { mountObservability } = await import(new URL(modulePath, document.baseURI).href);
+    const host = document.createElement("div"); host.id = "isolated-trace"; document.body.append(host);
+    await mountObservability(host, {
+      bounds: async () => ({ start: 1000000000n, end: 2000000000n }),
+      services: async () => [],
+      metrics: async () => { throw new Error("metrics unavailable"); },
+      logs: async () => { throw new Error("logs unavailable"); },
+      trace: async () => [{
+        traceId: "independent", spanId: "span", service: "api", name: "independent span",
+        startNs: 1100000000n, endNs: 1200000000n, status: "ok", attributes: {}, events: []
+      }]
+    }, { initialTraceId: "independent" });
+  }, manifest["src/index.ts"].file);
+  await expect(page.locator("#isolated-trace .obs-status")).toContainText("metrics unavailable");
+  await expect(page.locator("#isolated-trace .trace-summary")).toContainText("1 spans");
+  await expect(page.locator("#isolated-trace .trace-context")).toContainText("Trace independent");
+  await page.locator("#trace-id").fill("missing-trace");
+  await page.locator("#open-trace").click();
+  await expect(page.locator("#observability-root .trace-context")).toContainText("No spans found for trace missing-trace");
+  await expect(page.locator("#observability-root .trace-summary")).toContainText("0 spans");
+  await page.locator("#trace-id").fill("");
+  await page.locator("#open-trace").click();
+  await expect(page.locator("#loader-status")).toContainText("Enter a trace ID");
+  await page.locator("#trace-id").fill("trace-slow-001");
+  await page.locator("#trace-id").press("Enter");
+  await expect(page.locator("#observability-root .trace-summary")).toContainText("6 spans");
 });
