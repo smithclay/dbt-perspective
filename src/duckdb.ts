@@ -74,6 +74,10 @@ export class DuckDBSource implements QuerySource {
       }
     }
   }
+  async describe(sql: string, params: unknown[] = [], options: QueryOptions = {}) {
+    const columns = await this.query("DESCRIBE " + sql, params, options);
+    return Object.fromEntries(columns.map(column => [String(column.column_name), String(column.column_type)]));
+  }
   /** Trusted setup/DDL only; query() is for cancellable result sets. */
   async execute(sql: string) {
     if (this.disposed) throw new Error("DuckDB source is disposed.");

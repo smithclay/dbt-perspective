@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "tsc --noEmit && vite build",
-    "test": "node --import tsx src/board.test.ts && node --import tsx src/observability/observability.test.ts",
+    "test": "node --import tsx src/board.test.ts && node --import tsx src/observability/observability.test.ts && node --import tsx src/observability/yaml-board.test.ts",
     "preview": "vite preview",
     "test:e2e": "playwright test",
     "schema:generate": "node scripts/generate-schema.mjs",

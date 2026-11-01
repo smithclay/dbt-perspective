@@ -1,0 +1,253 @@
+# yaml-language-server: $schema=https://docs.dbtcharts.com/schema/board.json
+# This is the actual source of every chart in the observability explorer.
+# ref() names bind to the DuckDB tables selected by the application.
+title: Observability explorer
+source: duckdb
+variables:
+  range_start_ns:
+    input: text
+    default: "1793491200000000000"
+    visible: false
+  range_end_ns:
+    input: text
+    default: "1793491260019000000"
+    visible: false
+  bucket_ns:
+    input: text
+    default: "1000000000"
+    visible: false
+  histogram_width:
+    input: number
+    default: 50
+    visible: false
+  threshold:
+    input: number
+    default: 250
+    visible: false
+  trace_id:
+    input: text
+    default: trace-slow-001
+    visible: false
+  span_id:
+    input: text
+    default: ""
+    visible: false
+  service:
+    input: text
+    default: ""
+    visible: false
+  detail_json:
+    input: text
+    default: '{}'
+    visible: false
+queries:
+  latency: |
+    WITH samples AS (
+      SELECT *, CAST(timestamp_ns AS BIGINT) AS ts
+      FROM {{ ref('metrics') }}
+      WHERE CAST(timestamp_ns AS BIGINT) >= CAST({{ range_start_ns }} AS BIGINT)
+      AND CAST(timestamp_ns AS BIGINT) < CAST({{ range_end_ns }} AS BIGINT)
+      AND ({{ service }} = '' OR service = {{ service }})
+    ), bucketed AS (
+      SELECT *, CAST({{ range_start_ns }} AS BIGINT)
+        + ((ts - CAST({{ range_start_ns }} AS BIGINT)) // CAST({{ bucket_ns }} AS BIGINT))
+        * CAST({{ bucket_ns }} AS BIGINT) AS bucket_ns
+      FROM samples
+    ), quantiles AS (
+      SELECT bucket_ns, quantile_cont(value, .5)::DOUBLE AS p50,
+        quantile_cont(value, .95)::DOUBLE AS p95,
+        quantile_cont(value, .99)::DOUBLE AS p99
+      FROM bucketed WHERE value IS NOT NULL GROUP BY bucket_ns
+    ), timeline AS (
+      SELECT CAST({{ range_start_ns }} AS BIGINT) + i * CAST({{ bucket_ns }} AS BIGINT) AS bucket_ns
+      FROM range(CAST(ceil((CAST({{ range_end_ns }} AS BIGINT) - CAST({{ range_start_ns }} AS BIGINT))::DOUBLE
+        / CAST({{ bucket_ns }} AS BIGINT)) AS BIGINT)) AS buckets(i)
+    )
+    SELECT epoch_ms(t.bucket_ns // 1000000) AS time, t.bucket_ns::VARCHAR AS timestamp_ns,
+      q.p50, q.p95, q.p99, CAST({{ threshold }} AS DOUBLE) AS threshold
+    FROM timeline t LEFT JOIN quantiles q USING (bucket_ns)
+    ORDER BY t.bucket_ns
+  band_points: |
+    WITH samples AS (
+      SELECT *, CAST(timestamp_ns AS BIGINT) AS ts
+      FROM {{ ref('metrics') }}
+      WHERE CAST(timestamp_ns AS BIGINT) >= CAST({{ range_start_ns }} AS BIGINT)
+      AND CAST(timestamp_ns AS BIGINT) < CAST({{ range_end_ns }} AS BIGINT)
+      AND ({{ service }} = '' OR service = {{ service }})
+    ), bucketed AS (
+      SELECT *, CAST({{ range_start_ns }} AS BIGINT)
+        + ((ts - CAST({{ range_start_ns }} AS BIGINT)) // CAST({{ bucket_ns }} AS BIGINT))
+        * CAST({{ bucket_ns }} AS BIGINT) AS bucket_ns
+      FROM samples
+    ), quantiles AS (
+      SELECT bucket_ns, quantile_cont(value, .5)::DOUBLE AS p50,
+        quantile_cont(value, .95)::DOUBLE AS p95,
+        quantile_cont(value, .99)::DOUBLE AS p99
+      FROM bucketed WHERE value IS NOT NULL GROUP BY bucket_ns
+    ), timeline AS (
+      SELECT CAST({{ range_start_ns }} AS BIGINT) + i * CAST({{ bucket_ns }} AS BIGINT) AS bucket_ns
+      FROM range(CAST(ceil((CAST({{ range_end_ns }} AS BIGINT) - CAST({{ range_start_ns }} AS BIGINT))::DOUBLE
+        / CAST({{ bucket_ns }} AS BIGINT)) AS BIGINT)) AS buckets(i)
+    )
+    SELECT 'quantile' AS kind, t.bucket_ns::VARCHAR AS timestamp_ns,
+      (t.bucket_ns - CAST({{ range_start_ns }} AS BIGINT))::DOUBLE / 1000000 AS elapsed_ms,
+      q.p50, q.p95, q.p99, NULL::DOUBLE AS value, NULL::VARCHAR AS trace_id
+    FROM timeline t LEFT JOIN quantiles q USING (bucket_ns)
+    UNION ALL
+    SELECT 'exemplar', timestamp_ns,
+      (ts - CAST({{ range_start_ns }} AS BIGINT))::DOUBLE / 1000000,
+      NULL::DOUBLE, NULL::DOUBLE, NULL::DOUBLE, value::DOUBLE, trace_id
+    FROM samples WHERE trace_id IS NOT NULL AND trace_id <> ''
+    ORDER BY elapsed_ms, kind
+  distribution: |
+    SELECT floor(value / {{ histogram_width }}) * {{ histogram_width }} AS lower,
+      (floor(value / {{ histogram_width }}) * {{ histogram_width }})::VARCHAR || '–' ||
+      (floor(value / {{ histogram_width }}) * {{ histogram_width }} + {{ histogram_width }})::VARCHAR AS bucket,
+      count(*)::DOUBLE AS count
+    FROM {{ ref('metrics') }}
+    WHERE CAST(timestamp_ns AS BIGINT) >= CAST({{ range_start_ns }} AS BIGINT)
+    AND CAST(timestamp_ns AS BIGINT) < CAST({{ range_end_ns }} AS BIGINT)
+    AND ({{ service }} = '' OR service = {{ service }})
+      AND value IS NOT NULL
+    GROUP BY 1,2 ORDER BY lower
+  density: |
+    WITH samples AS (
+      SELECT *, CAST(timestamp_ns AS BIGINT) AS ts FROM {{ ref('metrics') }}
+      WHERE CAST(timestamp_ns AS BIGINT) >= CAST({{ range_start_ns }} AS BIGINT)
+      AND CAST(timestamp_ns AS BIGINT) < CAST({{ range_end_ns }} AS BIGINT)
+      AND ({{ service }} = '' OR service = {{ service }})
+    )
+    SELECT epoch_ms((CAST({{ range_start_ns }} AS BIGINT)
+      + ((ts - CAST({{ range_start_ns }} AS BIGINT)) // CAST({{ bucket_ns }} AS BIGINT))
+      * CAST({{ bucket_ns }} AS BIGINT)) // 1000000) AS time,
+      floor(value / {{ histogram_width }}) * {{ histogram_width }} AS latency,
+      count(*)::DOUBLE AS count
+    FROM samples WHERE value IS NOT NULL
+    GROUP BY 1,2 ORDER BY time, latency
+  exemplars: |
+    SELECT trace_id, timestamp_ns, epoch_ms(CAST(timestamp_ns AS BIGINT) // 1000000)::VARCHAR AS time, value::DOUBLE AS value
+    FROM {{ ref('metrics') }}
+    WHERE CAST(timestamp_ns AS BIGINT) >= CAST({{ range_start_ns }} AS BIGINT)
+    AND CAST(timestamp_ns AS BIGINT) < CAST({{ range_end_ns }} AS BIGINT)
+    AND ({{ service }} = '' OR service = {{ service }})
+      AND trace_id IS NOT NULL AND trace_id <> ''
+    ORDER BY value DESC LIMIT 20
+  trace_spans: |
+    WITH selected AS (
+      SELECT *, min(CAST(start_ns AS BIGINT)) OVER () AS origin_ns,
+        max(coalesce(CAST(end_ns AS BIGINT), CAST(start_ns AS BIGINT))) OVER () AS latest_ns
+      FROM {{ ref('spans') }} WHERE trace_id = {{ trace_id }}
+    )
+    SELECT trace_id, span_id, parent_span_id, service, name, start_ns, end_ns, status, attributes, events,
+      origin_ns::VARCHAR AS trace_origin_ns,
+      (CAST(start_ns AS BIGINT) - origin_ns)::DOUBLE / 1000000 AS start_ms,
+      (coalesce(CAST(end_ns AS BIGINT), latest_ns) - origin_ns)::DOUBLE / 1000000 AS end_ms
+    FROM selected ORDER BY CAST(start_ns AS BIGINT), span_id
+  selected_details: |
+    SELECT key AS field,
+      CASE WHEN type = 'VARCHAR' THEN json_extract_string(value, '$') ELSE value::VARCHAR END AS value
+    FROM json_each(CAST({{ detail_json }} AS JSON))
+  correlated_logs: |
+    SELECT id, epoch_ms(CAST(timestamp_ns AS BIGINT) // 1000000)::VARCHAR AS time,
+      timestamp_ns, severity, service, body, trace_id, span_id, attributes,
+      lower(body || ' ' || service || ' ' || attributes::VARCHAR) AS search
+    FROM {{ ref('logs') }}
+    WHERE CAST(timestamp_ns AS BIGINT) >= CAST({{ range_start_ns }} AS BIGINT)
+    AND CAST(timestamp_ns AS BIGINT) < CAST({{ range_end_ns }} AS BIGINT)
+    AND ({{ service }} = '' OR service = {{ service }})
+      AND ({{ trace_id }} = '' OR trace_id = {{ trace_id }})
+      AND ({{ span_id }} = '' OR span_id = {{ span_id }})
+    ORDER BY CAST(timestamp_ns AS BIGINT), id LIMIT 50001
+
+charts:
+  latency:
+    title: Latency · p50 / p95 / p99
+    type: line
+    query: latency
+    x: time
+    y: [p50, p95, p99, threshold]
+    y_label: ms
+    height: 280
+    style:
+      axis_y:
+        scale:
+          continuous:
+            type: linear
+  percentile_band:
+    title: Percentile band
+    subtitle: Drag to select time; click an exemplar diamond to open a trace.
+    type: custom
+    template: quantile-band
+    query: band_points
+    x: elapsed_ms
+    y: [p50, p95, p99]
+    options:
+      time_ns_column: timestamp_ns
+      kind_column: kind
+      value_column: value
+      trace_column: trace_id
+      range_start_variable: range_start_ns
+      range_end_variable: range_end_ns
+      bucket_variable: bucket_ns
+      threshold_variable: threshold
+      unit: ms
+      log_scale: false
+    style:
+      min_height: 230
+      max_height: 230
+  histogram:
+    title: Latency distribution
+    type: bar
+    query: distribution
+    x: bucket
+    y: count
+    height: 250
+    sort:
+      by: lower
+    style:
+      orientation: vertical
+  heatmap:
+    title: Latency over time
+    type: heatmap
+    query: density
+    x: time
+    y: latency
+    color: count
+    height: 250
+  trace_exemplars:
+    title: Trace exemplars
+    subtitle: Click a row to open its trace.
+    type: table
+    query: exemplars
+  waterfall:
+    title: Trace waterfall
+    type: bar
+    query: trace_spans
+    x: name
+    y_start: start_ms
+    y: end_ms
+    color: service
+    height: 490
+    style:
+      orientation: horizontal
+  details:
+    title: Span / log details
+    type: table
+    query: selected_details
+  logs:
+    title: Correlated logs
+    type: table
+    query: correlated_logs
+    style:
+      columns:
+        search:
+          visible: false
+
+rows:
+  - latency
+  - percentile_band
+  - cols: [histogram, heatmap]
+  - trace_exemplars
+  - waterfall
+  - details
+  - logs

@@ -4,6 +4,13 @@ import { mountObservability } from "./observability/dashboard";
 import { appendDemoBatch, DEMO_TRACE_ID, seedObservabilityDemo } from "./observability/demo";
 import { normalizeSpans } from "./observability/trace-model";
 import "./style.css";
+import { OBSERVABILITY_YAML } from "./observability/default-board";
+import { compileExplorerYaml } from "./observability/yaml-board";
+
+const yamlEditor = document.querySelector<HTMLTextAreaElement>("#explorer-yaml")!;
+const yamlStatus = document.querySelector<HTMLElement>("#yaml-status")!;
+let activeYaml = OBSERVABILITY_YAML;
+yamlEditor.value = activeYaml;
 
 const status = document.querySelector<HTMLElement>("#loader-status")!;
 const container = document.querySelector<HTMLElement>("#observability-root")!;
@@ -15,23 +22,34 @@ const traceInput = document.querySelector<HTMLInputElement>("#trace-id")!;
 async function run(action: () => Promise<void>) {
   if (pending) return;
   pending = true; status.textContent = "Loading DuckDB-Wasm…"; status.className = "";
-  document.querySelectorAll<HTMLButtonElement | HTMLInputElement>(".controls button,.controls input,header button").forEach(el => el.disabled = true);
+  document.querySelectorAll<HTMLButtonElement | HTMLInputElement>(".controls button,.controls input,header button,.yaml-actions button,.yaml-actions input").forEach(el => el.disabled = true);
   try { await action(); status.textContent = "Ready · data queried locally in DuckDB-Wasm"; }
   catch (error) { status.textContent = error instanceof Error ? error.message : String(error); status.className = "error"; }
   finally {
     pending = false;
-    document.querySelectorAll<HTMLButtonElement | HTMLInputElement>(".controls button,.controls input,header button").forEach(el => el.disabled = false);
+    document.querySelectorAll<HTMLButtonElement | HTMLInputElement>(".controls button,.controls input,header button,.yaml-actions button,.yaml-actions input").forEach(el => el.disabled = false);
   }
 }
-async function mount(tables?: { metrics: string; spans: string; logs: string }, initialTraceId?: string) {
+let currentTables: { metrics: string; spans: string; logs: string } | undefined;
+async function mount(tables?: { metrics: string; spans: string; logs: string }, initialTraceId?: string, fitData = false) {
+  compileExplorerYaml(activeYaml);
+  currentTables = tables;
   unsubscribeSelection?.();
   await dashboard?.dispose();
-  dashboard = await mountObservability(container, new ObservabilityData(source, tables), { initialTraceId });
+  dashboard = await mountObservability(container, new ObservabilityData(source, tables), { yaml: activeYaml, initialTraceId, fitData, onYamlChange(yaml) {
+    const clean = yamlEditor.value === activeYaml;
+    activeYaml = yaml;
+    if (clean) yamlEditor.value = yaml;
+    else yamlStatus.textContent = "Draft changes are not applied; download exports the active board.";
+  } });
+  activeYaml = dashboard.yaml();
+  yamlEditor.value = activeYaml;
+  yamlStatus.textContent = "Validated against the official dbt Charts schema. Rendering from this YAML.";
   traceInput.value = dashboard.store.state.selection.traceId ?? "";
   unsubscribeSelection = dashboard.store.subscribe(state => { traceInput.value = state.selection.traceId ?? ""; });
 }
 document.querySelector<HTMLButtonElement>("#reload-demo")!.onclick = () => void run(async () => {
-  await dashboard?.dispose(); dashboard = undefined; await source.dispose(); source = await DuckDBSource.create(); await seedObservabilityDemo(source); await mount(undefined, DEMO_TRACE_ID);
+  await dashboard?.dispose(); dashboard = undefined; await source.dispose(); source = await DuckDBSource.create(); await seedObservabilityDemo(source); activeYaml = OBSERVABILITY_YAML; yamlEditor.value = activeYaml; await mount(undefined, DEMO_TRACE_ID);
 });
 document.querySelector<HTMLInputElement>("#data-file")!.onchange = event => {
   const file = (event.target as HTMLInputElement).files?.[0]; if (!file) return;
@@ -39,8 +57,8 @@ document.querySelector<HTMLInputElement>("#data-file")!.onchange = event => {
     const table = document.querySelector<HTMLSelectElement>("#import-table")!.value;
     if (/\.duckdb$|\.db$/i.test(file.name)) {
       await source.loadFile(file, "telemetry");
-      await mount({ metrics: "telemetry.metrics", spans: "telemetry.spans", logs: "telemetry.logs" });
-    } else { await source.loadFile(file, table); await mount(); }
+      await mount({ metrics: "telemetry.metrics", spans: "telemetry.spans", logs: "telemetry.logs" }, undefined, true);
+    } else { await source.loadFile(file, table); await mount(undefined, undefined, true); }
   });
 };
 document.querySelector<HTMLInputElement>("#otlp-file")!.onchange = event => {
@@ -80,4 +98,23 @@ document.querySelector<HTMLButtonElement>("#append-data")!.onclick = () => void 
   dashboard!.store.setRange(bounds);
 });
 window.addEventListener("pagehide", () => { void (async () => { await dashboard?.dispose(); await source?.dispose(); })(); }, { once: true });
-await run(async () => { source = await DuckDBSource.create(); await seedObservabilityDemo(source); await mount(undefined, DEMO_TRACE_ID); });
+await run(async () => { source = await DuckDBSource.create(); await seedObservabilityDemo(source); activeYaml = OBSERVABILITY_YAML; yamlEditor.value = activeYaml; await mount(undefined, DEMO_TRACE_ID); });
+
+document.querySelector<HTMLButtonElement>("#apply-yaml")!.onclick = () => void run(async () => {
+  const candidate = yamlEditor.value;
+  compileExplorerYaml(candidate);
+  activeYaml = candidate;
+  await mount(currentTables);
+});
+document.querySelector<HTMLButtonElement>("#reset-yaml")!.onclick = () => void run(async () => {
+  activeYaml = OBSERVABILITY_YAML; yamlEditor.value = activeYaml;
+  await mount(currentTables);
+});
+document.querySelector<HTMLInputElement>("#yaml-file")!.onchange = event => {
+  const file = (event.target as HTMLInputElement).files?.[0];
+  if (file) void run(async () => { const candidate = await file.text(); compileExplorerYaml(candidate); activeYaml = candidate; yamlEditor.value = candidate; await mount(currentTables); });
+};
+document.querySelector<HTMLButtonElement>("#download-yaml")!.onclick = () => {
+  const url = URL.createObjectURL(new Blob([dashboard?.yaml() ?? activeYaml], { type: "application/yaml" }));
+  const anchor = document.createElement("a"); anchor.href = url; anchor.download = "observability.yml"; anchor.click(); URL.revokeObjectURL(url);
+};

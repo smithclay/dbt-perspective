@@ -1,0 +1,54 @@
+{#---
+description: Quantile envelope with time brushing represented by the host runtime.
+channels:
+  x:
+    description: Elapsed time in milliseconds.
+  y:
+    description: p50, p95, and p99 quantile columns.
+    multiple: true
+options:
+  time_ns_column: {type: column, default: timestamp_ns}
+  kind_column: {type: column, default: kind}
+  value_column: {type: column, default: value}
+  trace_column: {type: column, default: trace_id}
+  range_start_variable: {type: string, default: range_start_ns}
+  range_end_variable: {type: string, default: range_end_ns}
+  bucket_variable: {type: string, default: bucket_ns}
+  threshold_variable: {type: string, default: threshold}
+  unit: {type: string, default: ms}
+  log_scale: {type: boolean, default: false}
+---#}
+{% set box = namespace(high=1, previous=none) %}
+{% for r in rows %}
+  {% if r[channels.y[2]] is not none %}{% set box.high = [box.high, r[channels.y[2]]] | max %}{% endif %}
+  {% if r[options.value_column] is not none %}{% set box.high = [box.high, r[options.value_column]] | max %}{% endif %}
+{% endfor %}
+{% set duration = ((variables[options.range_end_variable] | int) - (variables[options.range_start_variable] | int)) / 1000000 %}
+{% set sx = d3.scale_linear([0, [1, duration] | max], [45, width - 15]) %}
+{% if options.log_scale %}
+  {% set scale_y = d3.scale_linear([math.log(0.001), math.log(box.high * 1.1)], [height - 25, 15]) %}
+{% else %}
+  {% set scale_y = d3.scale_linear([0, box.high * 1.1], [height - 25, 15]) %}
+{% endif %}
+{% macro sy(value) %}{{ scale_y(math.log([0.001, value] | max)) if options.log_scale else scale_y(value) }}{% endmacro %}
+<g font-family="{{ style.font.family }}" font-size="{{ style.font.size }}">
+{% for r in rows %}
+  {% if r[options.kind_column] == 'quantile' %}
+    {% if r[channels.y[0]] is not none and r[channels.y[2]] is not none %}
+      {% if box.previous is not none and r[channels.x] - box.previous[channels.x] <= (variables[options.bucket_variable] | float) / 1000000 %}
+        <polygon fill="{{ style.accent }}" fill-opacity="0.2"
+          points="{{ sx(box.previous[channels.x]) }},{{ sy(box.previous[channels.y[0]]) }} {{ sx(r[channels.x]) }},{{ sy(r[channels.y[0]]) }} {{ sx(r[channels.x]) }},{{ sy(r[channels.y[2]]) }} {{ sx(box.previous[channels.x]) }},{{ sy(box.previous[channels.y[2]]) }}"/>
+        {% for column in channels.y %}
+          <line x1="{{ sx(box.previous[channels.x]) }}" y1="{{ sy(box.previous[column]) }}"
+            x2="{{ sx(r[channels.x]) }}" y2="{{ sy(r[column]) }}"
+            stroke="{{ style.accent }}" stroke-opacity="{{ 0.4 + loop.index * 0.2 }}"/>
+        {% endfor %}
+      {% endif %}
+      {% set box.previous = r %}
+    {% else %}{% set box.previous = none %}{% endif %}
+  {% elif r[options.value_column] is not none %}
+    <circle cx="{{ sx(r[channels.x]) }}" cy="{{ sy(r[options.value_column]) }}" r="3" fill="{{ style.tones.negative }}"/>
+  {% endif %}
+{% endfor %}
+<text x="45" y="{{ height - 5 }}" fill="{{ style.font.color }}">{{ options.unit }}</text>
+</g>

@@ -199,9 +199,12 @@ charts:
       orientation: horizontal
 ```
 
-See `public/examples/ranges.yml`. These render interval geometry through the registered Perspective Range Bars plugin. The trace
-hierarchy and shared interactions belong to the separate observability API;
-there is no invented `type: trace` added to the official schema. Standard range
+See `public/examples/ranges.yml`. These render interval geometry through the registered Perspective Range Bars plugin. The explorer itself is defined by `charts/observability.yml`, including all SQL,
+variables, eight charts, and layout. Its YAML editor applies edits and imports or
+downloads complete boards. The waterfall is a standard bar with `y_start` and `y`;
+when its result includes trace/span IDs and a nanosecond origin, the native
+Perspective backend adds trace hierarchy, events, collapse, zoom, and correlation.
+There is no invented `type: trace` added to the official schema. Standard range
 endpoints support numbers and ISO timestamps. Decimal integer strings are
 treated as nanosecond timestamps and normalized to relative milliseconds.
 

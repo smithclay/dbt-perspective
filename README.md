@@ -31,9 +31,22 @@ The engine and JSON/Parquet extensions are served from the app's own origin.
 See [observability documentation](docs/observability.md) for data contracts,
 embedding, live updates, performance budgets, and remaining limitations.
 
+The observability explorer is authored in [charts/observability.yml](charts/observability.yml).
+Its open YAML editor supports apply, file import, reset, and download of the current
+board, including active variable defaults. SQL, chart channels, titles, and layout
+come from that file. The trace waterfall uses standard `bar` + `y_start` + `y`;
+the percentile envelope uses the official `custom` chart mechanism with the
+included [quantile-band template](templates/quantile-band.svg.j2).
+
+The explorer supports scalar `{{ variable }}` SQL parameters and explicit
+`{{ ref('metrics') }}`, `spans`, and `logs` bindings to local DuckDB-Wasm tables.
+Parameters are bound, not interpolated into SQL. This is a limited template subset,
+not the full dbt/Jinja compiler. `compileExplorerYaml` and `mountYamlBoard` expose
+the same generic native Perspective path; chart IDs are not renderer bindings.
+
 ## YAML compatibility
 
-The YAML board page uses the **official dbt Charts authored board grammar**, not
+Both pages use the **official dbt Charts authored board grammar**, not
 `manifest.json` or a custom YAML dialect. Every board is validated against a
 vendored, unmodified official JSON Schema. The pinned snapshot, source, hash,
 and license are recorded in [schemas/README.md](schemas/README.md).
@@ -44,6 +57,9 @@ schema constraint violations fail validation.
 capability check rejects valid but unimplemented features explicitly. Nothing
 unsupported is silently dropped. This is an initial Perspective backend, not a
 replacement for the entire upstream compiler.
+
+The following table describes the original board-page compiler. The explorer
+adds the scalar SQL variables, local refs, and registered custom template described above.
 
 | Surface | Implemented |
 | --- | --- |

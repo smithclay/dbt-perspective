@@ -17,6 +17,7 @@ export interface HeatBucket { timeNs: Nanoseconds; lower: number; upper: number;
 export interface HistogramBucket { lower: number; upper: number; count: number }
 export interface QueryOptions { signal?: AbortSignal; maxRows?: number }
 export interface QuerySource {
+  describe?(sql: string, params?: unknown[], options?: QueryOptions): Promise<Record<string, string>>;
   query(sql: string, params?: unknown[], options?: QueryOptions): Promise<Record<string, unknown>[]>;
 }
 export interface Selection { traceId?: string; spanId?: string; service?: string }

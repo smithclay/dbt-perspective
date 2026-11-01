@@ -38,7 +38,19 @@ export class TraceWaterfallPlugin extends NativePlugin {
     }, () => this.dispatchEvent(new Event("perspective-plugin-update", { bubbles: true, composed: true })));
   }
   async draw(view: View) {
-    const spans = normalizeSpans(await flatRows(view));
+    const records = await flatRows(view);
+    const spans = normalizeSpans(records);
+    if (typeof this.state.startColumn === "string") for (let index = 0; index < spans.length; index++) {
+      const row = records[index], span = spans[index];
+      const origin = BigInt(String(row[String(this.state.originColumn ?? "trace_origin_ns")]));
+      const start = Number(row[this.state.startColumn]);
+      const end = Number(row[String(this.state.endColumn)]);
+      if (!Number.isFinite(start) || !Number.isFinite(end)) throw new Error("Trace interval channels must be finite milliseconds.");
+      span.startNs = origin + BigInt(Math.round(start * 1e6));
+      if (span.endNs !== undefined) span.endNs = origin + BigInt(Math.round(end * 1e6));
+      if (typeof this.state.labelColumn === "string") span.name = String(row[this.state.labelColumn]);
+      if (typeof this.state.colorColumn === "string") span.service = String(row[this.state.colorColumn]);
+    }
     const nextId = spans[0]?.traceId;
     const surface = this.getSurface();
     surface.setSpans(spans, typeof this.state.selectedId === "string" ? this.state.selectedId : undefined, this.traceId === nextId);

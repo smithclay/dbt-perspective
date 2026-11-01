@@ -149,12 +149,17 @@ test("trace loading is independent of metric/log failures and reports missing tr
     await mountObservability(host, {
       bounds: async () => ({ start: 1000000000n, end: 2000000000n }),
       services: async () => [],
-      metrics: async () => { throw new Error("metrics unavailable"); },
-      logs: async () => { throw new Error("logs unavailable"); },
-      trace: async () => [{
-        traceId: "independent", spanId: "span", service: "api", name: "independent span",
-        startNs: 1100000000n, endNs: 1200000000n, status: "ok", attributes: {}, events: []
-      }]
+      tables: { metrics: "metrics", spans: "spans", logs: "logs" },
+      source: { query: async (sql: string) => {
+        if (sql.includes('FROM "spans"')) return [{
+          trace_id: "independent", span_id: "span", service: "api", name: "independent span",
+          start_ns: "1100000000", end_ns: "1200000000", trace_origin_ns: "1100000000",
+          start_ms: 0, end_ms: 100, status: "ok", attributes: "{}", events: "[]"
+        }];
+        if (sql.includes("json_each")) return [];
+        throw new Error(sql.includes('FROM "logs"') ? "logs unavailable" : "metrics unavailable");
+      } }
+
     }, { initialTraceId: "independent" });
   }, manifest["src/index.ts"].file);
   await expect(page.locator("#isolated-trace .obs-status")).toContainText("metrics unavailable");

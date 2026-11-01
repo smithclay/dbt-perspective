@@ -8,3 +8,6 @@ export { DuckDBSource } from "./duckdb";
 export * from "./observability/index";
 
 export { PerspectiveSession, initializePerspective } from "./perspective/runtime";
+
+export { compileExplorerYaml, compileSql, snapshotYaml } from "./observability/yaml-board";
+export { mountYamlBoard } from "./observability/yaml-runtime";
