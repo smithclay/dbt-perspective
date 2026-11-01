@@ -8,15 +8,15 @@ test("DuckDB metrics → trace waterfall → correlated span logs", async ({ pag
   await expect(page.locator(".obs-status")).toContainText("metric buckets", { timeout: 30000 });
   await expect(page.locator(".trace-summary")).toContainText("6 spans");
   await expect(page.locator("#trace-id")).toHaveValue("trace-slow-001");
-  await expect(page.getByRole("button", { name: /Open trace trace-sl/ })).toBeVisible();
-  await page.getByRole("button", { name: /Open trace trace-sl/ }).click();
+  await page.locator('perspective-viewer[data-role="exemplars"] regular-table').getByText("trace-slow-001", { exact: true }).click();
   await expect(page.locator(".trace-summary")).toContainText("6 spans");
   await page.getByRole("button", { name: "postgres / SELECT inventory", exact: true }).click();
   await expect(page.locator(".detail-json")).toContainText("lock_timeout");
+  await expect(page.locator(".detail-json")).toContainText("exception");
   await expect(page.locator(".detail-json")).toContainText("1793491230060000000");
   await page.getByRole("button", { name: "Show span logs", exact: true }).click();
   await expect(page.locator(".log-count")).toHaveText("6 records");
-  await expect(page.locator(".log-row").first()).toContainText("lock timeout");
+  await expect(page.locator('perspective-viewer[data-role="logs"] regular-table')).toContainText("lock timeout");
   await page.getByRole("button", { name: "Collapse POST /checkout", exact: true }).click();
   await expect(page.getByRole("button", { name: "postgres / SELECT inventory", exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "Expand POST /checkout", exact: true }).click();
@@ -28,7 +28,9 @@ test("DuckDB metrics → trace waterfall → correlated span logs", async ({ pag
   await expect(page.locator(".obs-status")).toContainText("metric buckets");
   await page.getByRole("button", { name: "Clear selection", exact: true }).click();
   await expect(page.locator(".log-count")).toHaveText("6000 records");
-  expect(await page.locator(".log-row").count()).toBeLessThan(15);
+  await page.locator('perspective-viewer[data-role="details"]').scrollIntoViewIfNeeded();
+  await expect(page.locator(".detail-json")).not.toContainText("lock_timeout");
+  expect(await page.locator('perspective-viewer[data-role="logs"] regular-table tbody tr').count()).toBeLessThan(25);
   await page.getByRole("button", { name: "Append live sample", exact: true }).click();
   await expect(page.locator("#loader-status")).toContainText("Ready");
   await page.screenshot({ path: "test-results/observability.png", fullPage: true });
@@ -78,6 +80,7 @@ test("standard dbt range bars render intervals", async ({ page }) => {
   await expect(page.getByRole("status")).toContainText("Board rendered");
   await expect(page.getByRole("img", { name: "Range bars" })).toBeVisible();
   await expect(page.locator(".range-description")).toContainText("3 intervals");
+  expect(await page.locator("perspective-viewer").evaluate(async element => (element as HTMLElement & { save(): Promise<{plugin: string}> }).save())).toMatchObject({ plugin: "Range Bars" });
 });
 
 test("exported DuckDB API preserves timestamps, imports Parquet/databases, and bounds live data", async ({ page }) => {

@@ -39,7 +39,12 @@ function normalizeSpan(value: unknown): Span {
   let attrs = v.attributes;
   if (typeof attrs === "string") { try { attrs = JSON.parse(attrs); } catch { throw new Error("Invalid span attributes JSON."); } }
   const status = typeof v.status === "string" ? v.status.toLowerCase() : record(v.status).code;
-  const events: SpanEvent[] = (Array.isArray(v.events) ? v.events : []).map(value => {
+  let eventInput = v.events;
+  if (typeof eventInput === "string") {
+    try { eventInput = JSON.parse(eventInput); } catch { throw new Error("Invalid span events JSON."); }
+  }
+  if (eventInput != null && !Array.isArray(eventInput)) throw new Error("Span events must be an array.");
+  const events: SpanEvent[] = (Array.isArray(eventInput) ? eventInput : []).map(value => {
     const event = record(value);
     return { name: String(event.name ?? ""), timeNs: ns(event.timeUnixNano ?? event.time_ns), attributes: attributes(event.attributes) };
   });

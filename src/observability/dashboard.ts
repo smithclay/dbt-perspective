@@ -5,12 +5,13 @@ import { DashboardStore, QueryCoordinator, startRefresh } from "./state";
 import { mountMetrics } from "./metrics";
 import { mountWaterfall } from "./waterfall";
 import { mountLogs } from "./logs";
+import { PerspectiveSession } from "../perspective/runtime";
 
 export async function mountObservability(container: HTMLElement, data: ObservabilityData, options: {
   unit?: import("./contracts").Unit; title?: string; histogramWidth?: number; threshold?: number; initialTraceId?: string;
 } = {}) {
   const root = document.createElement("div"); root.className = "observability";
-  root.innerHTML = '<div class="obs-controls"><label>From (UTC)<input type="datetime-local" step="0.001" class="range-start"></label><label>To (UTC)<input type="datetime-local" step="0.001" class="range-end"></label><button class="apply-range">Apply time range</button><button class="reset-range">Reset time range</button><label>Service<select class="service-filter"><option value="">All services</option></select></label><label>Bucket (s)<input class="bucket-seconds" type="number" min="0.001" step="0.001" value="1"></label><label>Threshold (ms)<input class="threshold" type="number" min="0" value="250"></label><label class="check"><input class="log-scale" type="checkbox">Log scale</label><label class="check"><input class="live" type="checkbox">Refresh every 5s</label><button class="clear-selection">Clear selection</button></div><p class="obs-status" role="status"></p><div class="metrics-slot"></div><div class="trace-context"></div><div class="waterfall-slot"></div><section class="obs-card details-card"><h2>Span / log details</h2><p class="detail-summary">Select a trace exemplar, then a span.</p><button class="span-logs" disabled>Show span logs</button><pre class="detail-json"></pre></section><div class="logs-slot"></div>';
+  root.innerHTML = '<div class="obs-controls"><label>From (UTC)<input type="datetime-local" step="0.001" class="range-start"></label><label>To (UTC)<input type="datetime-local" step="0.001" class="range-end"></label><button class="apply-range">Apply time range</button><button class="reset-range">Reset time range</button><label>Service<select class="service-filter"><option value="">All services</option></select></label><label>Bucket (s)<input class="bucket-seconds" type="number" min="0.001" step="0.001" value="1"></label><label>Threshold (ms)<input class="threshold" type="number" min="0" value="250"></label><label class="check"><input class="log-scale" type="checkbox">Log scale</label><label class="check"><input class="live" type="checkbox">Refresh every 5s</label><button class="clear-selection">Clear selection</button></div><p class="obs-status" role="status"></p><div class="metrics-slot"></div><div class="trace-context"></div><div class="waterfall-slot"></div><section class="obs-card details-card"><h2>Span / log details</h2><p class="detail-summary">Select a trace exemplar, then a span.</p><button class="span-logs" disabled>Show span logs</button><div class="detail-json"></div></section><div class="logs-slot"></div>';
   container.append(root);
   const status = root.querySelector<HTMLElement>(".obs-status")!;
   const sourceController = new AbortController();
@@ -30,26 +31,34 @@ export async function mountObservability(container: HTMLElement, data: Observabi
   const context = root.querySelector<HTMLElement>(".trace-context")!;
   context.setAttribute("role", "status");
   const service = root.querySelector<HTMLSelectElement>(".service-filter")!;
-  const metrics = mountMetrics(root.querySelector<HTMLElement>(".metrics-slot")!, {
+  const session = await PerspectiveSession.create();
+  const detailsPanel = await session.panel(root.querySelector<HTMLElement>(".detail-json")!,
+    { field: "string", value: "string" }, { plugin: "Datagrid", columns: ["field", "value"], settings: false }, 350);
+  detailsPanel.viewer.dataset.role = "details";
+  const metrics = await mountMetrics(root.querySelector<HTMLElement>(".metrics-slot")!, {
     onRange: range => store.setRange(range), onTrace: traceId => store.select({ traceId, service: store.state.selection.service })
-  });
-  const waterfall = mountWaterfall(root.querySelector<HTMLElement>(".waterfall-slot")!, span => {
-    selectedSpan = span; details(span); spanLogs.disabled = false;
-  });
-  const logs = mountLogs(root.querySelector<HTMLElement>(".logs-slot")!, log => {
-    details(log);
+  }, session);
+  const waterfall = await mountWaterfall(root.querySelector<HTMLElement>(".waterfall-slot")!, span => {
+    selectedSpan = span; void details(span).catch(report); spanLogs.disabled = false;
+  }, session);
+  const logs = await mountLogs(root.querySelector<HTMLElement>(".logs-slot")!, log => {
+    void details(log).catch(report);
     if (log.traceId) {
       const selection = { ...store.state.selection, traceId: log.traceId, spanId: log.spanId };
-      if (currentTrace === log.traceId) waterfall.select(log.spanId);
+      if (currentTrace === log.traceId) void waterfall.select(log.spanId).catch(report);
       store.select(selection);
     }
-  });
-  function details(value: Span | LogRecord) {
+  }, session);
+  async function details(value: Span | LogRecord) {
     const span = "startNs" in value;
     root.querySelector(".detail-summary")!.textContent = span
       ? value.service + " / " + value.name + " · " + (value.endNs ? formatValue(relativeMs(value.endNs, value.startNs), "ms") : "incomplete") + " · " + value.status
       : value.severity + " · " + value.service + " · " + value.body;
-    root.querySelector(".detail-json")!.textContent = JSON.stringify(value, (_, item) => typeof item === "bigint" ? item.toString() : item, 2);
+    await detailsPanel.replace(Object.entries(value).map(([field, item]) => ({
+      field, value: typeof item === "object" && item !== null
+        ? JSON.stringify(item, (_, value) => typeof value === "bigint" ? value.toString() : value)
+        : item === undefined ? "" : String(item)
+    })));
   }
   function report(error: unknown) { if (!disposed) { status.textContent = error instanceof Error ? error.message : String(error); status.className = "obs-status error"; } }
   async function refreshMetrics(state: DashboardState) {
@@ -64,9 +73,10 @@ export async function mountObservability(container: HTMLElement, data: Observabi
         data.logs(state.range, state.selection, signal)
       ]);
       return { metricData, logData };
-    }, result => {
-      metrics.setData(result.metricData, state.range, { unit: options.unit ?? "ms", title: options.title ?? "Latency", bucketNs, threshold: threshold.value === "" ? undefined : Number(threshold.value), logScale: logScale.checked });
-      logs.setLogs(result.logData);
+    }, async result => {
+      await metrics.setData(result.metricData, state.range, { unit: options.unit ?? "ms", title: options.title ?? "Latency", bucketNs, threshold: threshold.value === "" ? undefined : Number(threshold.value), logScale: logScale.checked });
+      await logs.setLogs(result.logData);
+      if (disposed || state !== store.state) return;
       status.textContent = result.metricData.quantiles.length + " metric buckets · " + result.logData.length + " logs · " + (state.selection.traceId ? "trace " + state.selection.traceId : "all traces");
     });
   }
@@ -75,22 +85,22 @@ export async function mountObservability(container: HTMLElement, data: Observabi
       context.className = "trace-context";
       context.textContent = "Loading trace " + state.selection.traceId + "…";
       if (currentTrace !== state.selection.traceId) {
-        selectedSpan = undefined; spanLogs.disabled = true; waterfall.setSpans([]);
+        selectedSpan = undefined; spanLogs.disabled = true; await waterfall.setSpans([]);
       }
-      await traceCoordinator.run(signal => data.trace(state.selection.traceId!, signal), spans => {
+      await traceCoordinator.run(signal => data.trace(state.selection.traceId!, signal), async spans => {
         const preserve = currentTrace === state.selection.traceId;
         currentTrace = state.selection.traceId;
         selectedSpan = preserve ? spans.find(span => span.spanId === selectedSpan?.spanId) : undefined;
         spanLogs.disabled = !selectedSpan;
-        waterfall.setSpans(spans, state.selection.spanId ?? selectedSpan?.spanId, preserve);
+        await waterfall.setSpans(spans, state.selection.spanId ?? selectedSpan?.spanId, preserve);
         context.textContent = spans.length ? "Trace " + currentTrace + " · select a span for attributes and events" : "No spans found for trace " + currentTrace + ". Choose another exemplar or check the trace ID.";
       });
     } else {
-      traceCoordinator.cancel(); currentTrace = undefined; selectedSpan = undefined; spanLogs.disabled = true; waterfall.setSpans([]);
+      traceCoordinator.cancel(); currentTrace = undefined; selectedSpan = undefined; spanLogs.disabled = true; await waterfall.setSpans([]);
       context.className = "trace-context";
       context.textContent = "Choose a trace exemplar below the latency chart, or enter a trace ID above.";
       root.querySelector(".detail-summary")!.textContent = "Select a trace exemplar, then a span.";
-      root.querySelector(".detail-json")!.textContent = "";
+      await detailsPanel.replace([]);
     }
   }
   async function refresh() {
@@ -136,9 +146,9 @@ export async function mountObservability(container: HTMLElement, data: Observabi
   return {
     store,
     refresh,
-    dispose() {
+    async dispose() {
       disposed = true; stopRefresh?.(); unsubscribe(); sourceController.abort(); coordinator.cancel(); traceCoordinator.cancel();
-      metrics.dispose(); waterfall.dispose(); logs.dispose(); root.remove();
+      await Promise.all([metrics.dispose(), waterfall.dispose(), logs.dispose(), detailsPanel.dispose()]); await session.dispose(); root.remove();
     }
   };
 }

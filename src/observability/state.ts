@@ -15,13 +15,13 @@ export class DashboardStore {
 export class QueryCoordinator {
   private controller?: AbortController;
   private generation = 0;
-  async run<T>(load: (signal: AbortSignal) => Promise<T>, publish: (value: T) => void): Promise<void> {
+  async run<T>(load: (signal: AbortSignal) => Promise<T>, publish: (value: T) => unknown): Promise<void> {
     this.controller?.abort();
     const controller = this.controller = new AbortController();
     const generation = ++this.generation;
     try {
       const value = await load(controller.signal);
-      if (!controller.signal.aborted && generation === this.generation) publish(value);
+      if (!controller.signal.aborted && generation === this.generation) await publish(value);
     } catch (error) {
       if (!controller.signal.aborted && generation === this.generation) throw error;
     }

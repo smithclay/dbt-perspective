@@ -34,7 +34,11 @@ export function chartConfig(chart: ObjectValue, data: Row[]): ViewerConfigUpdate
     assertKeys(chart.style, ["orientation"], "chart.style");
     if (chart.type !== "bar") throw new BoardError("UNSUPPORTED", "Orientation style is supported for bars only.");
   }
-  if (rangeData(chart, data)) return { plugin: "Datagrid", columns: Object.keys(data[0]), settings: false };
+  const ranges = rangeData(chart, data);
+  if (ranges) return {
+    plugin: "Range Bars", columns: ["label", "start", "end", "color"],
+    plugin_config: { orientation: ranges.orientation, origin: ranges.origin ?? null }, settings: false
+  };
   const type = chart.type as string;
   const measures = fields(chart.y);
   const x = typeof chart.x === "string" ? chart.x : undefined;
@@ -144,12 +148,13 @@ export async function compileBoard(
       if (chart.visible !== undefined && typeof chart.visible !== "boolean") throw new BoardError("UNSUPPORTED", "Dynamic chart visibility is not supported.");
       if (chart.visible === false) continue;
       const data = await resolveQuery(scope, chart.query, results, resolver);
+      const ranges = rangeData(chart, data);
       children.push({
         kind: "chart", title: typeof chart.title === "string" ? chart.title : name,
         subtitle: typeof chart.subtitle === "string" ? chart.subtitle : undefined,
         height: typeof chart.height === "number" ? chart.height : undefined,
         width: typeof chart.width === "number" ? chart.width : undefined,
-        data, config: chartConfig(chart, data), ranges: rangeData(chart, data)
+        data: ranges ? ranges.items.map(item => ({ ...item })) : data, config: chartConfig(chart, data), ranges
       });
     }
     return { kind, title: current.title as string | undefined, children };

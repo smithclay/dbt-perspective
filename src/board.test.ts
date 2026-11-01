@@ -71,6 +71,8 @@ test("standard dbt y_start range bars compile without custom YAML fields", async
   const chart = plan.children[0];
   assert.equal(chart.kind, "chart");
   if (chart.kind !== "chart") throw new Error();
+  assert.equal(chart.config.plugin, "Range Bars");
+  assert.deepEqual(Object.keys(chart.data[0]), ["label", "start", "end", "color"]);
   assert.equal(chart.ranges!.items.length, 3);
   assert.deepEqual([chart.ranges!.items[2].start, chart.ranges!.items[2].end], [60, 530]);
 });

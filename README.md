@@ -1,6 +1,6 @@
 # dbt × Perspective
 
-A native TypeScript renderer for [dbt Charts YAML](https://docs.dbtcharts.com/reference/yaml-reference/) using [Perspective](https://perspective.finos.org/). Vite, web components, WebAssembly workers, and no frontend framework or Python runtime.
+A native TypeScript renderer with Perspective viewers for [dbt Charts YAML](https://docs.dbtcharts.com/reference/yaml-reference/) using [Perspective](https://perspective.finos.org/). Vite, web components, WebAssembly workers, and no frontend framework or Python runtime.
 
 ## Run
 
@@ -19,7 +19,10 @@ edit its YAML, then click **Render board**.
 Open **Observability explorer** at `/observability.html` for the working
 metrics → trace waterfall → correlated logs workflow. It includes p50/p95/p99,
 histograms/heatmaps, time brushing, thresholds, span trees/events/details,
-virtualized rows, and incremental ingestion with bounded retention.
+Perspective grids, and incremental ingestion with bounded retention. All charts,
+logs, exemplars, and details render through Perspective tables/views/viewers.
+The waterfall, interval bars, and percentile band are registered Perspective
+plugins using the official plugin lifecycle; standard views use built-ins.
 
 Both pages can load data from **DuckDB-Wasm**. Upload CSV, JSON/JSONL, Parquet,
 or a DuckDB database; the observability page also imports OTLP trace JSON.

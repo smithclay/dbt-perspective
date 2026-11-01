@@ -78,3 +78,14 @@ test("query normalization rejects non-finite metric values instead of plotting i
   } });
   await assert.rejects(data.metrics({ start: 0n, end: 100n }, 10n), /finite/);
 });
+test("canonical Perspective rows preserve JSON-encoded span events", () => {
+  const [result] = normalizeSpans([{
+    trace_id: "trace", span_id: "span", start_ns: "100", end_ns: "200",
+    attributes: '{"retry":true}',
+    events: '[{"name":"exception","time_ns":"150","attributes":{"message":"timeout"}}]'
+  }]);
+  assert.equal(result.events[0].name, "exception");
+  assert.equal(result.events[0].timeNs, 150n);
+  assert.equal(result.events[0].attributes.message, "timeout");
+  assert.throws(() => normalizeSpans([{ trace_id: "trace", span_id: "span", start_ns: "100", events: "invalid" }]), /events JSON/);
+});

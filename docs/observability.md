@@ -7,16 +7,48 @@ opens its sample trace and fills the Trace ID input. Traces load independently
 of metrics/log queries; loading, missing-ID, and query failures appear beside
 the waterfall.
 
+## Perspective rendering
+
+Every chart, grid, and details view is a `perspective-viewer` backed by a
+Perspective worker table and view. Each dashboard shares one Perspective session.
+DuckDB-Wasm runs the SQL; Perspective owns display data, filtering, expressions,
+plugin selection, updates, and viewer cleanup.
+
+| View | Perspective plugin |
+| --- | --- |
+| Percentile lines / threshold | Built-in Y Line |
+| Histogram | Built-in Y Bar |
+| Latency heatmap | Built-in Heatmap |
+| Trace exemplars | Built-in Datagrid |
+| Logs and span/log details | Built-in Datagrid |
+| Trace waterfall | Registered Trace Waterfall plugin |
+| Percentile bands / time brushing | Registered Quantile Band plugin |
+| YAML interval bars | Registered Range Bars plugin |
+
+The three registered plugins are maintained in this repository and use the
+official Perspective plugin API. They use Canvas internally and consume the
+Perspective `View` passed to `draw()`/`update()`. Their rendering code lives
+under `src/perspective/plugins/`; it is not an upstream built-in chart type.
+They implement clear, resize, restyle, save, restore, and delete lifecycle
+methods. Changing a viewer's filters or replacing its table updates the plugin.
+Grouped input is rejected explicitly for these flat-row plugins.
+
+Waterfall collapse, selected span, and zoom are serialized in `plugin_config`.
+Use the standard `await viewer.save()` / `await viewer.restore(snapshot)` API.
+Selections use `perspective-click`, including trace/span IDs and time filters.
+Log search is a Perspective view filter; Datagrid owns row virtualization.
+Ordinary page headings, inputs, and status messages remain normal HTML.
+
 ## What works
 
 - Shared UTC time range with drag selection, service filtering, explicit time
   buckets, threshold overlays, linear/log scales, units, and missing-data gaps.
-- SQL-derived p50/p95/p99 series and percentile bands from raw observations,
-  histograms, latency heatmaps, and trace exemplars. Percentiles are computed
+- SQL-derived p50/p95/p99 series and a Perspective Quantile Band view from raw observations,
+  Perspective histograms, latency heatmaps, and a Datagrid of trace exemplars. Percentiles are computed
   from samples; existing percentile values must not be fed back as samples.
 - Metrics → trace exemplar → selected span → correlated logs, with a log search
   and structured span/log details.
-- Canvas trace waterfall with parent/child nesting, collapse/expand, overlapping
+- Perspective Trace Waterfall plugin with parent/child nesting, collapse/expand, overlapping
   spans, service colors, error highlighting, incomplete spans, event ticks,
   zoom, pan, and keyboard navigation. Missing parents and cycles produce
   warnings; duplicate span IDs fail.
@@ -97,7 +129,7 @@ dashboard.store.select({ traceId: "trace-id", spanId: "span-id" });
 dashboard.store.setRange({ start: 1793491200000000000n, end: 1793491260000000000n });
 
 // Stop callbacks before terminating the worker:
-dashboard.dispose();
+await dashboard.dispose();
 await source.dispose();
 ```
 
@@ -113,6 +145,13 @@ returns normalized records. Arrow BIGINT values outside JavaScript's safe intege
 range remain decimal strings; safe integers become numbers without loss.
 Nested Arrow values normalize to plain objects. Cast DECIMAL or other specialized
 numeric types to DOUBLE in source SQL when you intend to plot them.
+
+The line chart's logarithmic mode uses Perspective's native `log10()`
+expressions and labels the transformed axis explicitly. The Quantile Band
+plugin shows a logarithmic axis with tick labels in the original unit. Null
+buckets remain null in the native line view; they are never summed into zeros.
+Perspective 3.8's built-in Y Line connects surrounding valid points across nulls;
+the Quantile Band plugin explicitly breaks its lines and fill at missing buckets.
 
 ### Incremental ingestion
 
@@ -160,7 +199,7 @@ charts:
       orientation: horizontal
 ```
 
-See `public/examples/ranges.yml`. These render interval geometry. The trace
+See `public/examples/ranges.yml`. These render interval geometry through the registered Perspective Range Bars plugin. The trace
 hierarchy and shared interactions belong to the separate observability API;
 there is no invented `type: trace` added to the official schema. Standard range
 endpoints support numbers and ISO timestamps. Decimal integer strings are
@@ -168,18 +207,18 @@ treated as nanosecond timestamps and normalized to relative milliseconds.
 
 ## Limits and verification
 
-- Browser memory is finite. Worker record batches currently normalize to records;
-  this is not a zero-copy Arrow-to-Perspective pipeline.
+- Browser memory is finite. DuckDB record batches currently normalize to records before ingestion into
+  Perspective tables; this is not a zero-copy Arrow pipeline.
 - Query budgets: 2,000 time buckets; 100,000 heatmap cells; 50,000 spans per
   selected trace; 50,000 filtered logs. Oversized results report errors, not
   silently truncated datasets. Exemplars intentionally show the top 20 by value.
 - Browser tests cover real DuckDB imports/SQL, the metrics-to-span-log journey,
-  standard range bars, and a 10,000-span OTLP import/scroll with fewer than 20
+  standard range bars, and a 10,000-span OTLP import/scroll through a Perspective table/view with fewer than 20
   mounted span-label rows. The model test also covers a 10,000-level deep trace.
   The 15-second import budget and 1.5-second model budget are regression guards,
   not universal hardware performance guarantees.
-- Canvas views use keyboard-accessible controls, visible span-label/log buttons,
-  and exemplar buttons. Full screen-reader equivalents for every plotted value
+- Perspective grids handle tabular rendering and virtualization. The waterfall
+  plugin has keyboard-accessible controls and visible span-label buttons. Full screen-reader equivalents for every plotted value
   and automated accessibility auditing remain future work.
 - The explorer supports a time range and service filter, not the entire dbt Charts
   variable/expression language. It does not yet implement full dbt Charts rendering
@@ -191,3 +230,15 @@ Engine assets are large (roughly 34–39MB uncompressed for the selected variant
 serve static assets with compression and caching. Only one variant is loaded
 at runtime. Arbitrary SQL can still request external extensions or URLs, subject
 to the browser's network/CORS policy.
+
+## Adapter API changes
+
+`mountMetrics`, `mountLogs`, and `mountWaterfall` now return promises because
+they initialize real Perspective viewers. Await their `setData`/`setLogs`/
+`setSpans` and `dispose` methods too. `mountObservability` already returns a
+promise; its `dispose()` must now be awaited before terminating a DuckDB source.
+
+The adapters accept an optional shared `PerspectiveSession` as their final
+argument. Without one they own a session and dispose it themselves. With one
+they dispose only their own panels. `mountObservability` creates one session
+for its eight viewers and terminates it after disposing the panels.

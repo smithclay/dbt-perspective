@@ -6,3 +6,5 @@ export { mountBoard } from "./renderer";
 
 export { DuckDBSource } from "./duckdb";
 export * from "./observability/index";
+
+export { PerspectiveSession, initializePerspective } from "./perspective/runtime";

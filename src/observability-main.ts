@@ -25,13 +25,13 @@ async function run(action: () => Promise<void>) {
 }
 async function mount(tables?: { metrics: string; spans: string; logs: string }, initialTraceId?: string) {
   unsubscribeSelection?.();
-  dashboard?.dispose();
+  await dashboard?.dispose();
   dashboard = await mountObservability(container, new ObservabilityData(source, tables), { initialTraceId });
   traceInput.value = dashboard.store.state.selection.traceId ?? "";
   unsubscribeSelection = dashboard.store.subscribe(state => { traceInput.value = state.selection.traceId ?? ""; });
 }
 document.querySelector<HTMLButtonElement>("#reload-demo")!.onclick = () => void run(async () => {
-  dashboard?.dispose(); await source.dispose(); source = await DuckDBSource.create(); await seedObservabilityDemo(source); await mount(undefined, DEMO_TRACE_ID);
+  await dashboard?.dispose(); dashboard = undefined; await source.dispose(); source = await DuckDBSource.create(); await seedObservabilityDemo(source); await mount(undefined, DEMO_TRACE_ID);
 });
 document.querySelector<HTMLInputElement>("#data-file")!.onchange = event => {
   const file = (event.target as HTMLInputElement).files?.[0]; if (!file) return;
@@ -79,5 +79,5 @@ document.querySelector<HTMLButtonElement>("#append-data")!.onclick = () => void 
   const bounds = await new ObservabilityData(source).bounds();
   dashboard!.store.setRange(bounds);
 });
-window.addEventListener("pagehide", () => { dashboard?.dispose(); void source?.dispose(); }, { once: true });
+window.addEventListener("pagehide", () => { void (async () => { await dashboard?.dispose(); await source?.dispose(); })(); }, { once: true });
 await run(async () => { source = await DuckDBSource.create(); await seedObservabilityDemo(source); await mount(undefined, DEMO_TRACE_ID); });
