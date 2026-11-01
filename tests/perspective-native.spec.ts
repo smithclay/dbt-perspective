@@ -134,8 +134,8 @@ test('waterfall fits phone widths with readable labels and non-overlapping ticks
   await page.setViewportSize({width:390,height:844});
   await page.locator('.trace-label').first().click();
   await expect(page.locator('.detail-summary')).toContainText('gateway');
+  await expect(page.locator('.obs-status')).toContainText('metric buckets');
   await page.getByRole('button',{name:'Zoom in',exact:true}).click();
-  const state = await viewer.evaluate(async (el:any)=>(await el.save()).plugin_config);
-  expect(state.window[1]-state.window[0]).toBeLessThan(600);
+  await expect.poll(async () => viewer.evaluate(async (el:any)=>{const state=(await el.save()).plugin_config;return state.window[1]-state.window[0];})).toBeLessThan(600);
   await viewer.screenshot({path:'/tmp/mobile-waterfall.png'});
 });
