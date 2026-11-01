@@ -1,7 +1,7 @@
 // Custom plugins live inside Perspective's render slot, with their own scoped styles.
 export const pluginStyles = `
 :host{display:block;position:absolute;inset:0;color:var(--icon--color,#172239);background:var(--plugin--background,#fff);font:13px system-ui,sans-serif;overflow:hidden}
-*{box-sizing:border-box}button{font:inherit;cursor:pointer;border:0;border-radius:5px;padding:6px 10px;background:#244ddb;color:white}
+:host>div{height:100%;min-height:0}*{box-sizing:border-box}button{font:inherit;cursor:pointer;border:0;border-radius:5px;padding:6px 10px;background:#244ddb;color:white}
 button:focus-visible,[tabindex]:focus-visible{outline:2px solid #244ddb;outline-offset:2px}
 h2{font-size:16px;margin:0}.obs-card{padding:8px;background:transparent}.obs-heading{display:flex;justify-content:space-between;gap:12px;margin-bottom:8px}
 .obs-heading span,.trace-axis,.trace-warnings{font-size:12px;color:var(--inactive--color,#54627b)}.trace-tools{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
